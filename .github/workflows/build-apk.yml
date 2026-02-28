@@ -14,71 +14,25 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout codigo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
+      - name: Build APK com Docker Kivy
+        uses: ArtemSBulgakov/buildozer-action@v1
+        id: buildozer
         with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Setup Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Cache Buildozer
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.buildozer
-            ~/.gradle
-          key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
-          restore-keys: buildozer-${{ runner.os }}-
-
-      - name: Dependencias do sistema
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            git zip unzip wget \
-            libgl1-mesa-dev libgles2-mesa-dev \
-            libffi-dev libssl-dev \
-            python3-pip python3-dev \
-            build-essential ccache \
-            autoconf automake libtool \
-            zlib1g-dev lld libltdl-dev
-
-      - name: Instalar Buildozer e Cython
-        run: |
-          pip install --upgrade pip setuptools wheel
-          pip install buildozer cython==0.29.37
-
-      - name: Build APK debug
-        run: buildozer -v android debug 2>&1 | tee build.log
-        env:
-          ANDROIDAPI: "33"
-          ANDROIDMINAPI: "21"
+          command: buildozer android debug
+          buildozer_version: stable
 
       - name: Upload APK
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: EvolucaoReal-APK
-          path: bin/*.apk
+          path: ${{ steps.buildozer.outputs.filename }}
           retention-days: 30
-          if-no-files-found: warn
-
-      - name: Upload log se falhou
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log-erro
-          path: build.log
-          retention-days: 7
 
       - name: Criar Release
-        if: success() && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ github.run_number }}
@@ -86,9 +40,9 @@ jobs:
           body: |
             Como instalar:
             1. Baixe o .apk abaixo
-            2. Android - Configuracoes - Seguranca - Fontes desconhecidas ON
-            3. Abra e instale!
-          files: bin/*.apk
+            2. Android - Seguranca - Fontes desconhecidas ON
+            3. Instale e divirta-se!
+          files: ${{ steps.buildozer.outputs.filename }}
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
