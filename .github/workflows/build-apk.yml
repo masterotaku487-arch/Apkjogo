@@ -28,14 +28,14 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Cache
+      - name: Cache Buildozer
         uses: actions/cache@v4
         with:
           path: |
             ~/.buildozer
             ~/.gradle
-          key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
-          restore-keys: buildozer-${{ runner.os }}-
+          key: buildozer-v3-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+          restore-keys: buildozer-v3-${{ runner.os }}-
 
       - name: Instalar dependencias
         run: |
@@ -54,37 +54,41 @@ jobs:
           pip install --upgrade pip
           pip install buildozer==1.5.0 cython==0.29.37
 
-      # ✅ CORREÇÃO PRINCIPAL: aceitar licenças do Android SDK antecipadamente
-      - name: Aceitar licencas Android SDK
+      # ✅ CORREÇÃO DEFINITIVA: instalar build-tools estável com yes antes do buildozer
+      - name: Setup Android SDK e aceitar licencas
         run: |
-          mkdir -p ~/.android
-          touch ~/.android/repositories.cfg
-          mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
-          echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" >> ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-          echo -e "\n504667f4c0de7af1a06de9f4b1727b84351f2910" >> ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-          echo -e "\n8933bad161af4178b1185d1a37fbf41ea5269c55" >> ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-          echo -e "\nd975f751698a77b662f1254ddbeed3901e976f5a" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
-          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-arm-dbt-license
-          echo -e "\n33b6a2b64607f11b759f320ef9dff4ae5c47d97a" > ~/.buildozer/android/platform/android-sdk/licenses/google-gdk-license
-          echo "Licencas aceitas!"
-          ls -la ~/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || echo "Pasta ainda nao criada pelo buildozer (normal)"
+          # Deixar buildozer inicializar o SDK
+          timeout 60 buildozer android debug || true
 
-      - name: Build APK
+          SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
+          SDKMANAGER="$SDK_DIR/tools/bin/sdkmanager"
+
+          if [ -f "$SDKMANAGER" ]; then
+            echo "=== Aceitando todas as licencas ==="
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses || true
+
+            echo "=== Instalando build-tools 33.0.0 estavel ==="
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" "build-tools;33.0.0" || true
+
+            echo "=== Instalando platforms;android-33 ==="
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" "platforms;android-33" || true
+
+            echo "=== Build-tools instalados ==="
+            ls "$SDK_DIR/build-tools/" 2>/dev/null || echo "Ainda nao instalado"
+          else
+            echo "sdkmanager nao encontrado ainda"
+          fi
+
+      - name: Build APK final
         run: |
           buildozer -v android debug 2>&1 | tee build.log
-        env:
-          ANDROIDAPI: "33"
-          ANDROIDMINAPI: "21"
 
       - name: Verificar APK
         if: always()
         run: |
-          echo "=== APKs gerados ==="
           find . -name "*.apk" 2>/dev/null || echo "Nenhum APK"
           ls -lh bin/ 2>/dev/null || echo "bin/ nao existe"
-          echo "=== Ultimas linhas do log ==="
-          tail -30 build.log 2>/dev/null
+          tail -20 build.log 2>/dev/null
 
       - name: Upload build.log
         if: always()
@@ -93,6 +97,7 @@ jobs:
           name: build-log
           path: build.log
           retention-days: 7
+          if-no-files-found: warn
 
       - name: Upload APK
         if: success()
@@ -109,9 +114,7 @@ jobs:
         with:
           tag_name: v${{ github.run_number }}
           name: Evolucao Real v${{ github.run_number }}
-          body: |
-            Baixe o .apk e instale!
-            Ative Fontes desconhecidas no Android.
+          body: Baixe o .apk e instale! Ative Fontes desconhecidas no Android.
           files: bin/*.apk
           fail_on_unmatched_files: false
         env:
