@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 🧬 Evolução Real
 ### Simulação Evolutiva Autônoma para Android
 
@@ -98,3 +99,6 @@ buildozer android debug
 - **Kivy 2.3.0** — Interface gráfica cross-platform
 - **Buildozer** — Empacotamento para Android
 - **GitHub Actions** — CI/CD para gerar APK automaticamente
+=======
+# Apkjogo
+>>>>>>> f412f314a8b5c1371914de0ec67069175fb19f79
