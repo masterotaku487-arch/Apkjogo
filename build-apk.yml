@@ -1,0 +1,121 @@
+name: Build APK Evolucao Real
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache Buildozer
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            ~/.gradle
+          key: buildozer-v3-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+          restore-keys: buildozer-v3-${{ runner.os }}-
+
+      - name: Instalar dependencias
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            git zip unzip wget \
+            build-essential ccache \
+            libffi-dev libssl-dev \
+            libgl1-mesa-dev \
+            python3-pip python3-dev \
+            autoconf automake libtool \
+            zlib1g-dev lld
+
+      - name: Instalar Buildozer
+        run: |
+          pip install --upgrade pip
+          pip install buildozer==1.5.0 cython==0.29.37
+
+      # ✅ CORREÇÃO DEFINITIVA: instalar build-tools estável com yes antes do buildozer
+      - name: Setup Android SDK e aceitar licencas
+        run: |
+          # Deixar buildozer inicializar o SDK
+          timeout 60 buildozer android debug || true
+
+          SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
+          SDKMANAGER="$SDK_DIR/tools/bin/sdkmanager"
+
+          if [ -f "$SDKMANAGER" ]; then
+            echo "=== Aceitando todas as licencas ==="
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses || true
+
+            echo "=== Instalando build-tools 33.0.0 estavel ==="
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" "build-tools;33.0.0" || true
+
+            echo "=== Instalando platforms;android-33 ==="
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" "platforms;android-33" || true
+
+            echo "=== Build-tools instalados ==="
+            ls "$SDK_DIR/build-tools/" 2>/dev/null || echo "Ainda nao instalado"
+          else
+            echo "sdkmanager nao encontrado ainda"
+          fi
+
+      - name: Build APK final
+        run: |
+          buildozer -v android debug 2>&1 | tee build.log
+
+      - name: Verificar APK
+        if: always()
+        run: |
+          find . -name "*.apk" 2>/dev/null || echo "Nenhum APK"
+          ls -lh bin/ 2>/dev/null || echo "bin/ nao existe"
+          tail -20 build.log 2>/dev/null
+
+      - name: Upload build.log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EvolucaoReal-APK
+          path: bin/*.apk
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Criar Release
+        if: success() && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Evolucao Real v${{ github.run_number }}
+          body: Baixe o .apk e instale! Ative Fontes desconhecidas no Android.
+          files: bin/*.apk
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
